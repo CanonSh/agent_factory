@@ -3,15 +3,31 @@ try {
     root = getDirectoryFromPath( getCurrentTemplatePath() );
     generator = new lib.Generator( root );
 
-    console = createObject( "java", "ortus.boxlang.runtime.cli.MiniConsole" ).init( "" );
-    println( "Nombre del agente (letras, numeros, - o _; debe iniciar con letra):" );
-    requestedName = trim( console.readLine() ?: "" );
+    javaSystem = createObject( "java", "java.lang.System" );
+    originalOut = javaSystem.out;
+    quietOut = createObject( "java", "java.io.PrintStream" ).init(
+        createObject( "java", "java.io.ByteArrayOutputStream" ).init()
+    );
+    consoleInput = createObject( "java", "java.io.BufferedReader" ).init(
+        createObject( "java", "java.io.InputStreamReader" ).init( javaSystem.in )
+    );
+
+    originalOut.println( "Nombre del agente (letras, numeros, - o _; debe iniciar con letra):" );
+    originalOut.flush();
+    javaSystem.setOut( quietOut );
+    try {
+        requestedName = trim( consoleInput.readLine() ?: "" );
+        originalOut.println( "Describe en lenguaje natural que debe hacer el agente:" );
+        originalOut.flush();
+        instruction = trim( consoleInput.readLine() ?: "" );
+    } finally {
+        javaSystem.setOut( originalOut );
+    }
+
     if ( !reFind( "^[A-Za-z][A-Za-z0-9_-]{0,49}$", requestedName ) ) {
         throw( type: "InvalidAgentName", message: "El nombre debe iniciar con una letra y contener solo letras, numeros, guion o guion bajo (maximo 50 caracteres)." );
     }
 
-    println( "Describe en lenguaje natural que debe hacer el agente:" );
-    instruction = trim( console.readLine() ?: "" );
     if ( !len( instruction ) ) {
         throw( type: "MissingAgentInstruction", message: "La instruccion del agente no puede estar vacia." );
     }
