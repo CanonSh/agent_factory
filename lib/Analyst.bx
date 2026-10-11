@@ -1,0 +1,120 @@
+/**
+ * Analyst v1.6 — descripcion en lenguaje natural -> AgentSpec (struct).
+ *
+ * Dependencias: bx-ai 3.5.0+19, lib/AgentSpec.bx, GEMINI_API_KEY.
+ * Modelo probado: gemini-3.5-flash-lite, via openai-compatible.
+ *
+ * Contrato publico:
+ *   spec = new lib.Analyst().analyze( description );
+ *
+ * Este componente NO crea archivos ni ejecuta bxAgents.
+ */
+class {
+
+    function init() {
+        return this;
+    }
+
+    struct function analyze( required string description ) {
+        var userDescription = trim( arguments.description );
+        if ( !len( userDescription ) ) {
+            throw( message="Analyst: la descripcion del agente no puede estar vacia." );
+        }
+
+        if ( !structKeyExists( server.system.environment, "GEMINI_API_KEY" ) ) {
+            throw( message="Analyst: falta GEMINI_API_KEY en el entorno de esta terminal." );
+        }
+        var apiKey = trim( server.system.environment.GEMINI_API_KEY );
+        if ( !len( apiKey ) || apiKey == "coloca_tu_api_key_aqui" ) {
+            throw( message="Analyst: GEMINI_API_KEY esta vacia o tiene el valor de ejemplo." );
+        }
+
+        // Instrucciones estrictas para alinear la salida con AgentSpec v1.6.
+        var prompt = arrayToList( [
+            "Eres Analyst, un componente de Agent Factory.",
+            "Convierte la solicitud del usuario en UN SOLO objeto JSON valido.",
+            "Devuelve UNICAMENTE JSON: no Markdown, no ``` y no explicaciones adicionales.",
+            "El objeto debe contener exactamente estas 8 propiedades:",
+            "name, description, instructions, provider, model, tools, skills, subagents.",
+            "Reglas obligatorias:",
+            "- name: nombre corto descriptivo, de 1 a 50 caracteres; empieza con letra ASCII;",
+            "  utiliza solo letras ASCII, numeros, guion o guion bajo; sin espacios ni tildes.",
+            "- description: texto breve en espanol que describe el proposito del agente.",
+            "- instructions: instrucciones concretas en espanol, relevantes para la solicitud;",
+            "  deben indicar objetivos, limites y como responder sin inventar datos.",
+            "- provider: exactamente openai-compatible.",
+            "- model: exactamente gemini-3.5-flash-lite.",
+            "- tools: array con cero o mas identificadores EXACTOS: text_metrics, arithmetic.",
+            "  text_metrics: cuenta caracteres o palabras en textos; arithmetic: suma dos numeros.",
+            "  Solo incluye herramientas solicitadas y soportadas. Maximo 2 sin duplicados.",
+            "- skills: array de maximo 3 objetos con {name,description,instructions}.",
+            "  name: slug minusculas a-z, numeros y guion, comenzando con letra, maximo 50.",
+            "  description e instructions: textos utiles y precisos; no codigo ejecutable.",
+            "  Incluye skill si se pide una especializacion o metodologia reutilizable.",
+            "- subagents: array de maximo 3 objetos con {name,description,instructions}.",
+            "  name: slug minusculas y guiones, unico y distinto del nombre raiz.",
+            "  Crea subagentes cuando se solicite delegacion o especialistas diferenciados.",
+            "  Evita subagentes innecesarios para una tarea simple.",
+            "- Si una tool solicitada no pertenece al catalogo, NO inventes codigo ni identifiers.",
+            "No agregues otros campos, claves API, rutas de archivos o codigo ejecutable.",
+            "Solicitud del usuario:",
+            userDescription
+        ], char(10) );
+
+        var lastError = "";
+        var validator = new lib.AgentSpec();
+
+        // Hasta 2 intentos para manejar una respuesta malformada de Gemini.
+        for ( var attempt = 1; attempt <= 2; attempt++ ) {
+            var requestPrompt = prompt;
+            if ( len( lastError ) ) {
+                requestPrompt &= char(10) & "La salida anterior fue rechazada: " & lastError;
+                requestPrompt &= char(10) & "Devuelve ahora solamente el JSON correcto.";
+            }
+
+            var rawResponse = "";
+            try {
+                rawResponse = aiChat(
+                    messages: requestPrompt,
+                    params: {
+                        model: "gemini-3.5-flash-lite"
+                    },
+                    options: {
+                        provider: "openai-compatible",
+                        apiKey: apiKey,
+                        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+                        returnFormat: "single"
+                    }
+                );
+            } catch ( any apiError ) {
+                throw( message="Analyst: error al consultar Gemini: " & apiError.message );
+            }
+
+            if ( !isInstanceOf( rawResponse, "java.lang.String" ) ) {
+                lastError = "la respuesta no fue un string JSON.";
+                continue;
+            }
+
+            var jsonText = trim( rawResponse );
+            // Permite un bloque Markdown accidental (aunque el prompt lo prohiba).
+            if ( left( jsonText, 3 ) == "```" ) {
+                jsonText = reReplace( jsonText, "^```[A-Za-z]*", "", "one" );
+                jsonText = reReplace( jsonText, "```$", "", "one" );
+                jsonText = trim( jsonText );
+            }
+
+            try {
+                var candidate = jsonDeserialize( jsonText );
+                if ( !isStruct( candidate ) ) {
+                    throw( message="se esperaba un objeto JSON, no una lista o valor simple." );
+                }
+                // El validador central determina si respeta nuestro contrato.
+                return validator.validate( candidate );
+            } catch ( any badResponse ) {
+                lastError = badResponse.message;
+            }
+        }
+
+        throw( message="Analyst: Gemini no devolvio una especificacion valida tras 2 intentos. Ultimo error: " & lastError );
+    }
+}

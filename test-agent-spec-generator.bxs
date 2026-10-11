@@ -1,0 +1,45 @@
+
+/**
+ * Prueba de integracion:
+ * AgentSpec -> Generator
+ */
+
+try {
+    root = getDirectoryFromPath(getCurrentTemplatePath())
+
+    // Leer nuestra especificacion de ejemplo
+    spec = jsonDeserialize(
+        fileRead(root & "examples/logguardian.json", "UTF-8")
+    )
+
+    // Usar otro nombre para no sobrescribir LogGuardian
+    spec.name = "LogGuardianIntegracion"
+
+    // PASO 1: Validar especificacion
+    println("1. Validando AgentSpec...")
+    specValidado = new lib.AgentSpec().validate(spec)
+    println("[OK] Especificacion valida")
+
+    // PASO 2: Generar el agente
+    println("2. Ejecutando Generator...")
+    generator = new lib.Generator(root)
+    ruta = generator.generate(specValidado)
+
+    // PASO 3: Comprobar archivos
+    if (!fileExists(ruta & "/Agent.bx")) {
+        throw(message="No se genero Agent.bx")
+    }
+
+    if (!fileExists(ruta & "/instructions.md")) {
+        throw(message="No se genero instructions.md")
+    }
+
+    println("[OK] Proyecto generado correctamente")
+    println("RUTA: " & ruta)
+
+    println("=== INTEGRACION EXITOSA ===")
+
+} catch (any error) {
+    println("[ERROR] " & error.message)
+    throw(message="Fallo la prueba de integracion: " & error.message)
+}

@@ -1,0 +1,10 @@
+{
+  "name": "LogGuardian",
+  "description": "Analiza logs de aplicaciones",
+  "instructions": "Identifica errores y genera recomendaciones",
+  "provider": "openai-compatible",
+  "model": "gemini-3.5-flash-lite",
+  "tools": [],
+  "skills": [],
+  "subagents": []
+}

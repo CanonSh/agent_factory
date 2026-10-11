@@ -1,0 +1,14 @@
+{
+  "name": "agent-factory-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w client\" \"npm run dev -w server\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server && npm run test -w client"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}

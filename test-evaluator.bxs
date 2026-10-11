@@ -1,0 +1,60 @@
+/**
+ * Prueba de Evaluator.bx v1.0 con un proyecto que el usuario ya compilo.
+ * Ejecutar: boxlang test-evaluator.bxs
+ * Requiere GEMINI_API_KEY y BX Agents funcional.
+ */
+println( "=== TEST EVALUATOR v1.0 ===" );
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+
+// Primero probamos un fallo sin hacer llamadas a la API.
+failedAsExpected = false;
+try {
+    new lib.Evaluator().evaluate( root & "output/__NoExiste__", {
+        name: "Demo", description: "Demo", instructions: "Demo",
+        provider: "openai-compatible", model: "gemini-3.5-flash-lite",
+        tools: [], skills: [], subagents: []
+    } );
+} catch ( any invalidPathError ) {
+    failedAsExpected = true;
+    println( "[OK] Rechaza ruta inexistente: " & invalidPathError.message );
+}
+if ( !failedAsExpected ) {
+    throw( message="Evaluator no rechazo un proyecto inexistente." );
+}
+
+// Usar un proyecto ya generado y compilado en las pruebas del equipo.
+projectPath = root & "output/SQLTutorCorregido";
+if ( !directoryExists( projectPath ) ) {
+    throw( message="Falta output/SQLTutorCorregido. Ejecuta el factory primero." );
+}
+specPath = projectPath & "/agent-spec.json";
+if ( !fileExists( specPath ) ) {
+    throw( message="El agente de prueba no contiene agent-spec.json: " & specPath );
+}
+spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
+spec = new lib.AgentSpec().validate( spec );
+
+println( "[INFO] Evaluando agente: " & spec.name );
+println( "[INFO] La prueba hara llamadas reales a Gemini y ejecutara 3 invocaciones." );
+
+// Es importante que solo se evalua un proyecto con build valido.
+build = new lib.Validator().validate( projectPath );
+if ( !build.success ) {
+    throw( message="El agente no compila; Evaluator no debe ejecutarse. " & build.output );
+}
+println( "[OK] Build verificado." );
+
+report = new lib.Evaluator().evaluate( projectPath, spec );
+println( "[INFO] Resultado de evaluacion:" );
+println( jsonSerialize( data: report, pretty: true ) );
+if ( !report.success ) {
+    throw( message="La evaluacion no se completo; revisa errors en el reporte anterior." );
+}
+if ( !isArray( report.tests ) || arrayLen( report.tests ) != 3 ) {
+    throw( message="Evaluator no devolvio las 3 pruebas acordadas." );
+}
+if ( !isNumeric( report.score ) || report.score < 0 || report.score > 100 ) {
+    throw( message="Puntuacion fuera del rango 0-100." );
+}
+println( "[OK] Evaluator completo las 3 pruebas y devolvio una puntuacion." );
+println( "=== TEST EVALUATOR SUPERADO ===" );

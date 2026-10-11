@@ -1,0 +1,91 @@
+/**
+ * Prueba de autoreparacion segura v1.4 (sin llamadas a Gemini).
+ * Crea dos proyectos TEMPORALES dentro de output/ y los elimina al terminar.
+ * Nunca modifica los proyectos reales existentes.
+ *
+ * Ejecutar desde la raiz del repositorio:
+ *   boxlang test-repair.bxs
+ */
+println( "=== TEST AUTORREPARACION v1.4 ===" );
+
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+newName = "RepairDemo_" & left( replace( createUUID(), "-", "", "all" ), 10 );
+spec = jsonDeserialize( fileRead( root & "examples/logguardian.json", "UTF-8" ) );
+spec.name = newName;
+spec.description = "Agente temporal para probar autoreparacion";
+spec = new lib.AgentSpec().validate( spec );
+
+generator = new lib.Generator( root );
+validator = new lib.Validator();
+originalPath = "";
+repairedPath = "";
+brokenSource = "class { function init( {";
+
+try {
+    originalPath = generator.generate( spec );
+    println( "[1] Proyecto temporal creado: " & originalPath );
+
+    // El unico fichero que modificamos fue generado en esta misma prueba.
+    fileWrite( originalPath & "/Agent.bx", brokenSource, "UTF-8" );
+    failedBuild = validator.validate( originalPath );
+    if ( failedBuild.success || arrayLen( failedBuild.errors ) == 0 ) {
+        throw( message="La prueba no logro provocar un build fallido." );
+    }
+    println( "[OK] Build fallido detectado (exitCode=" & failedBuild.exitCode & ")." );
+
+    // Proteccion: no debe poder reparar proyectos fuera de su ruta permitida.
+    outsideRejected = false;
+    try {
+        generator.repair( spec, failedBuild.errors, root, 2 );
+    } catch ( any pathError ) {
+        outsideRejected = true;
+    }
+    if ( !outsideRejected ) {
+        throw( message="Generator.repair acepto una ruta fuera del proyecto esperado." );
+    }
+    println( "[OK] Proteccion de rutas activada." );
+
+    repairedPath = generator.repair( spec, failedBuild.errors, originalPath, 2 );
+    println( "[2] Nueva version de reparacion: " & repairedPath );
+    successfulBuild = validator.validate( repairedPath );
+    if ( !successfulBuild.success || successfulBuild.exitCode != 0 ) {
+        println( successfulBuild.output );
+        throw( message="La reparacion no compilo correctamente." );
+    }
+    println( "[OK] Version reparada: build exitoso (exitCode=0)." );
+
+    // El original debe seguir intacto para inspeccion.
+    if ( fileRead( originalPath & "/Agent.bx", "UTF-8" ) != brokenSource ) {
+        throw( message="La reparacion modifico el archivo original, lo cual esta prohibido." );
+    }
+    println( "[OK] El proyecto original no fue sobrescrito." );
+
+    // Impide un 3er intento inutil: el archivo ya coincide con las plantillas.
+    noOpRejected = false;
+    try {
+        generator.repair( spec, failedBuild.errors, repairedPath, 3 );
+    } catch ( any sameTemplateError ) {
+        noOpRejected = true;
+    }
+    if ( !noOpRejected ) {
+        throw( message="Generator.repair permitio una regeneracion sin cambios." );
+    }
+    println( "[OK] Evita regeneraciones inutiles en intento 3." );
+    println( "=== AUTORREPARACION PROBADA: 2 builds, 1 reparacion ===" );
+} finally {
+    // Solo rutas con nombre UUID creadas por ESTA prueba.
+    if ( len( repairedPath ) && directoryExists( repairedPath ) ) {
+        try {
+            directoryDelete( repairedPath, true );
+        } catch ( any cleanRepairError ) {
+            println( "[AVISO] No se pudo limpiar la carpeta temporal: " & repairedPath );
+        }
+    }
+    if ( len( originalPath ) && directoryExists( originalPath ) ) {
+        try {
+            directoryDelete( originalPath, true );
+        } catch ( any cleanOriginalError ) {
+            println( "[AVISO] No se pudo limpiar la carpeta temporal: " & originalPath );
+        }
+    }
+}

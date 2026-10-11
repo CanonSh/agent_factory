@@ -1,0 +1,92 @@
+/**
+ * Shell.bx - ejecucion de procesos externos para Agent Factory
+ * Contrato v1.0:
+ *   new lib.Shell().run(command, workingDir)
+ *   -> {success, exitCode, stdout, stderr, output}
+ *
+ * Implementacion inicial para Windows. Ejecutar SOLO comandos
+ * construidos por Agent Factory, nunca texto de usuario sin escapar.
+ */
+class {
+
+    public struct function run(
+        required string command,
+        required string workingDir
+    ) {
+        if ( !len( trim( arguments.command ) ) ) {
+            throw( message="Shell: command no puede estar vacio." );
+        }
+        if ( !directoryExists( arguments.workingDir ) ) {
+            throw( message="Shell: no existe el directorio de trabajo: " & arguments.workingDir );
+        }
+
+        // ProcessBuilder recibe argumentos separados; cmd.exe interpreta
+        // el comando controlado por el orquestador. La lista de Java evita
+        // problemas con los espacios de la ruta del proyecto.
+        var processArgs = createObject( "java", "java.util.ArrayList" ).init();
+        processArgs.add( "cmd.exe" );
+        processArgs.add( "/d" );
+        processArgs.add( "/s" );
+        processArgs.add( "/c" );
+        processArgs.add( arguments.command );
+
+        var builder = createObject( "java", "java.lang.ProcessBuilder" ).init( processArgs );
+        builder.directory( createObject( "java", "java.io.File" ).init( arguments.workingDir ) );
+
+        // Redireccion a archivos temporales para evitar bloquear el proceso
+        // al llenarse los buffers de stdout/stderr.
+        var javaFile = createObject( "java", "java.io.File" );
+        var stdoutFile = javaFile.createTempFile( "agent_factory_out_", ".txt" );
+        var stderrFile = javaFile.createTempFile( "agent_factory_err_", ".txt" );
+        var stdoutText = "";
+        var stderrText = "";
+        var exitCode = -1;
+        var timedOut = false;
+        var child = null;
+
+        try {
+            builder.redirectOutput( stdoutFile );
+            builder.redirectError( stderrFile );
+            child = builder.start();
+
+            var unit = createObject( "java", "java.util.concurrent.TimeUnit" );
+            var completed = child.waitFor( javaCast( "long", 120 ), unit.SECONDS );
+
+            if ( completed ) {
+                exitCode = child.exitValue();
+            } else {
+                timedOut = true;
+                child.destroyForcibly();
+                child.waitFor();
+            }
+            stdoutText = fileRead( stdoutFile.getAbsolutePath(), "UTF-8" );
+            stderrText = fileRead( stderrFile.getAbsolutePath(), "UTF-8" );
+
+            if ( timedOut ) {
+                stderrText &= "\nShell: el proceso supero el tiempo limite de 120 segundos.";
+            }
+
+            var combined = stdoutText;
+            if ( len( stderrText ) ) {
+                combined &= ( len( combined ) ? "\n" : "" ) & stderrText;
+            }
+
+            return {
+                success: !timedOut && exitCode == 0,
+                exitCode: exitCode,
+                stdout: stdoutText,
+                stderr: stderrText,
+                output: combined
+            };
+        } catch ( any e ) {
+            throw( message="Shell: no se pudo ejecutar el comando: " & e.message );
+        } finally {
+            if ( stdoutFile.exists() ) {
+                stdoutFile.delete();
+            }
+            if ( stderrFile.exists() ) {
+                stderrFile.delete();
+            }
+        }
+    }
+}

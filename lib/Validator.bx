@@ -1,0 +1,52 @@
+/**
+ * Validator.bx - Compila un proyecto BX Agents generado por Agent Factory.
+ *
+ * Contrato v1.0:
+ *   new lib.Validator().validate(projectPath)
+ *   -> { success, projectPath, exitCode, output, errors }
+ *
+ * Requiere lib/Shell.bx v1.0 probado en Windows.
+ */
+class {
+
+    public struct function validate( required string projectPath ) {
+        var path = trim( arguments.projectPath );
+
+        if ( !len( path ) ) {
+            throw( message="Validator: projectPath no puede estar vacio." );
+        }
+        if ( !directoryExists( path ) ) {
+            throw( message="Validator: no existe el proyecto: " & path );
+        }
+        if ( !fileExists( path & "/Agent.bx" ) ) {
+            throw( message="Validator: no existe Agent.bx en el proyecto: " & path );
+        }
+
+        // IMPORTANTE: el build se ejecuta DENTRO del proyecto, no en la raiz
+        // de Agent Factory. shell.run() devuelve el codigo de salida real.
+        var buildResult = new lib.Shell().run(
+            "boxlang module:bxagents build",
+            path
+        );
+
+        var errors = [];
+        if ( !buildResult.success ) {
+            var detail = trim( buildResult.stderr );
+            if ( !len( detail ) ) {
+                detail = trim( buildResult.stdout );
+            }
+            if ( !len( detail ) ) {
+                detail = "BX Agents build fallo con codigo de salida " & buildResult.exitCode & " sin mensaje de diagnostico.";
+            }
+            arrayAppend( errors, detail );
+        }
+
+        return {
+            success: buildResult.success,
+            projectPath: path,
+            exitCode: buildResult.exitCode,
+            output: buildResult.output,
+            errors: errors
+        };
+    }
+}

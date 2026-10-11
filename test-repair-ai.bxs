@@ -1,0 +1,96 @@
+/**
+ * TEST DE REPARACION CON GEMINI (requiere GEMINI_API_KEY y cuota de API).
+ * NO modifica plantillas originales ni agentes previos del repositorio.
+ * Ejecutar desde raiz: boxlang test-repair-ai.bxs
+ */
+println( "=== TEST REPARACION CON GEMINI v1.5 ===" );
+
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+fixtureId = left( replace( createUUID(), "-", "", "all" ), 12 );
+fixtureRoot = root & "output/RepairAIFixture_" & fixtureId;
+
+try {
+    if ( !structKeyExists( server.system.environment, "GEMINI_API_KEY" )
+        || !len( trim( server.system.environment.GEMINI_API_KEY ) ) ) {
+        throw( message="Falta GEMINI_API_KEY en la terminal actual." );
+    }
+
+    directoryCreate( fixtureRoot & "/templates", true );
+    for ( templateName in [ "Agent.bx.tpl", "instructions.md.tpl", "README.generated.tpl" ] ) {
+        originalTemplate = fileRead( root & "templates/" & templateName, "UTF-8" );
+        if ( templateName == "Agent.bx.tpl" ) {
+            damagedTemplate = replace( originalTemplate, "return this;", "return this + ;", "one" );
+            if ( damagedTemplate == originalTemplate ) {
+                throw( message="Fixture: no se encontro 'return this;' para introducir el error de sintaxis." );
+            }
+            originalTemplate = damagedTemplate;
+        }
+        fileWrite( fixtureRoot & "/templates/" & templateName, originalTemplate, "UTF-8" );
+    }
+    println( "[INFO] Plantilla rota creada solo en carpeta temporal." );
+
+    spec = jsonDeserialize( fileRead( root & "examples/logguardian.json", "UTF-8" ) );
+    spec.name = "AIRepairTest";
+    spec.description = "Agente temporal de prueba de reparacion inteligente";
+    spec = new lib.AgentSpec().validate( spec );
+    generator = new lib.Generator( fixtureRoot );
+    validator = new lib.Validator();
+
+    brokenPath = generator.generate( spec );
+    failedBuild = validator.validate( brokenPath );
+    if ( failedBuild.success || arrayLen( failedBuild.errors ) == 0 ) {
+        throw( message="Se esperaba un fallo de build real y un diagnostico." );
+    }
+    println( "[OK] Build inicial fallido (exitCode=" & failedBuild.exitCode & ")." );
+
+    // En v1.5 se exige permiso explicito antes de solicitar codigo a Gemini.
+    requiresOptIn = false;
+    try {
+        generator.repair( spec, failedBuild.errors, brokenPath, 2 );
+    } catch ( any permissionError ) {
+        requiresOptIn = true;
+    }
+    if ( !requiresOptIn ) {
+        throw( message="No se respeto la proteccion de --ai-repair." );
+    }
+    println( "[OK] La reparacion con IA requiere autorizacion explicita." );
+
+    println( "[INFO] Pidiendo a Gemini la correccion de Agent.bx..." );
+    repairedPath = generator.repair( spec, failedBuild.errors, brokenPath, 2, true );
+    result = validator.validate( repairedPath );
+    builds = 2;
+
+    if ( !result.success ) {
+        println( "[AVISO] Primera propuesta no compilo: " & result.output );
+        println( "[INFO] Intento final de reparacion con Gemini..." );
+        repairedPath = generator.repair( spec, result.errors, repairedPath, 3, true );
+        result = validator.validate( repairedPath );
+        builds = 3;
+    }
+
+    if ( !result.success ) {
+        println( result.output );
+        throw( message="La propuesta de Gemini no compilo despues de " & builds & " intentos. Revisar diagnosticos." );
+    }
+    println( "[OK] Codigo corregido compilo, exitCode=0 (build " & builds & "/3)." );
+
+    if ( !findNoCase( "return this + ;", fileRead( brokenPath & "/Agent.bx", "UTF-8" ) ) ) {
+        throw( message="Se altero el proyecto roto original durante la reparacion." );
+    }
+    println( "[OK] Archivo original sin cambios." );
+    receipt = jsonDeserialize( fileRead( repairedPath & "/repair-diagnostics.json", "UTF-8" ) );
+    if ( receipt.strategy != "gemini_agent_source" || receipt.changedFile != "Agent.bx" ) {
+        throw( message="No se registro correctamente el tipo de reparacion." );
+    }
+    println( "[OK] Reparacion registrada: " & receipt.strategy );
+    println( "=== TEST INTELIGENTE SUPERADO ===" );
+} finally {
+    // Solo elimina la carpeta UUID creada especificamente por ESTA prueba.
+    if ( directoryExists( fixtureRoot ) ) {
+        try {
+            directoryDelete( fixtureRoot, true );
+        } catch ( any cleanupError ) {
+            println( "[AVISO] Elimina manualmente si deseas: " & fixtureRoot );
+        }
+    }
+}

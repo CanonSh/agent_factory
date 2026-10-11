@@ -1,0 +1,16 @@
+// Ejecutar desde la raiz del repositorio: boxlang test-generator.bxs
+try {
+    root = getDirectoryFromPath( getCurrentTemplatePath() );
+    spec = jsonDeserialize( fileRead( root & "examples/logguardian.json", "UTF-8" ) );
+    generator = new lib.Generator( root );
+    generatedPath = generator.generate( spec );
+
+    println( "AGENTE GENERADO: " & generatedPath );
+    println( "SIGUIENTE PASO:" );
+    println( "cd " & char(34) & generatedPath & char(34) );
+    println( "boxlang module:bxagents doctor" );
+    println( "boxlang module:bxagents build" );
+    println( "boxlang module:bxagents invoke --message=" & char(34) & "Hola" & char(34) & " --json" );
+} catch ( any error ) {
+    println( "ERROR DEL GENERADOR: " & error.message );
+}

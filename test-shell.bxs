@@ -1,0 +1,32 @@
+/** Prueba independiente de Shell.bx (Windows PowerShell / CMD). */
+println( "=== TEST SHELL v1.0 ===" );
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+shell = new lib.Shell();
+
+// Test 1: comando que finaliza bien
+ok = shell.run( "echo AGENT_FACTORY_OK", root );
+if ( !ok.success || ok.exitCode != 0 || !findNoCase( "AGENT_FACTORY_OK", ok.stdout ) ) {
+    throw( message="Fallo test comando correcto: " & jsonSerialize( ok ) );
+}
+println( "[OK] Ejecuta comando correcto, lee stdout y exitCode=0." );
+
+// Test 2: fallo con codigo 7 (no confundir stdout con exito)
+failed = shell.run( "exit /b 7", root );
+if ( failed.success || failed.exitCode != 7 ) {
+    throw( message="Fallo test codigo de error: " & jsonSerialize( failed ) );
+}
+println( "[OK] Detecta error y exitCode=7." );
+
+// Test 3: workingDir invalido
+rejected = false;
+try {
+    shell.run( "echo INVALID", root & "__directorio_inexistente__" );
+} catch ( any e ) {
+    rejected = true;
+    println( "[OK] Rechaza directorio inexistente: " & e.message );
+}
+if ( !rejected ) {
+    throw( message="Fallo test directorio inexistente." );
+}
+
+println( "=== RESUMEN: 3 pruebas correctas ===" );
