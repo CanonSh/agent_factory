@@ -1,0 +1,70 @@
+/**
+ * Pruebas de Validator.bx sobre proyectos BX Agents.
+ * Ejecutar desde agent_factory: boxlang test-validator.bxs
+ * No modifica ningun agente generado existente.
+ */
+println( "=== TEST VALIDATOR v1.0 ===" );
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+validator = new lib.Validator();
+
+// Caso 1: compilar un agente previamente generado y probado.
+validProject = root & "output/JavaCodeHelper";
+if ( !directoryExists( validProject ) ) {
+    validProject = root & "output/LogGuardianIntegracion";
+}
+if ( !directoryExists( validProject ) ) {
+    validProject = root & "output/LogGuardian";
+}
+if ( !directoryExists( validProject ) ) {
+    throw( message="No existe JavaCodeHelper, LogGuardianIntegracion ni LogGuardian en output/. Genera un agente antes de ejecutar este test." );
+}
+
+println( "[INFO] Compilando: " & validProject );
+good = validator.validate( validProject );
+if ( !good.success || good.exitCode != 0 || arrayLen( good.errors ) != 0 ) {
+    println( good.output );
+    throw( message="Validator no reconocio el build correcto. exitCode=" & good.exitCode );
+}
+println( "[OK] Build exitoso, exitCode=0, errors=[]." );
+
+// Caso 2: validar el manejo de un directorio inexistente.
+missingRejected = false;
+try {
+    validator.validate( root & "output/__validator_no_existe__" );
+} catch ( any e ) {
+    missingRejected = true;
+    println( "[OK] Rechaza un proyecto inexistente: " & e.message );
+}
+if ( !missingRejected ) {
+    throw( message="Validator no rechazo un directorio inexistente." );
+}
+
+// Caso 3: generar SOLO una carpeta de prueba temporal con BoxLang invalido.
+// No editamos JavaCodeHelper ni ningun otro agente real.
+testId = left( replace( createUUID(), "-", "", "all" ), 12 );
+invalidProject = root & "output/ValidatorInvalid_" & testId;
+try {
+    directoryCreate( invalidProject, true );
+    fileWrite( invalidProject & "/Agent.bx", "class { function init( {", "UTF-8" );
+    fileWrite( invalidProject & "/instructions.md", "Prueba de build fallido", "UTF-8" );
+
+    println( "[INFO] Compilando fixture invalido: " & invalidProject );
+    bad = validator.validate( invalidProject );
+    if ( bad.success || bad.exitCode == 0 || arrayLen( bad.errors ) == 0 ) {
+        println( bad.output );
+        throw( message="Validator no detecto un build fallido como se esperaba." );
+    }
+    println( "[OK] Build invalido detectado, exitCode=" & bad.exitCode & ", errores capturados." );
+} finally {
+    // Borramos exclusivamente la carpeta temporal creada en esta prueba.
+    if ( directoryExists( invalidProject ) ) {
+        try {
+            directoryDelete( invalidProject, true );
+        } catch ( any cleanupError ) {
+            println( "[AVISO] No se pudo limpiar el fixture temporal: " & invalidProject );
+            println( cleanupError.message );
+        }
+    }
+}
+
+println( "=== RESUMEN: 3 pruebas correctas ===" );

@@ -1,0 +1,96 @@
+/**
+ * Pruebas de contrato AgentSpec v1.0 (no requieren Gemini ni bx-ai).
+ * Ejecutar desde la raiz de agent_factory:
+ *   boxlang test-agent-spec.bxs
+ */
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+fixture = jsonDeserialize( fileRead( root & "examples/logguardian.json", "UTF-8" ) );
+validator = new lib.AgentSpec();
+passed = 0;
+failed = 0;
+
+println( "=== PRUEBAS AgentSpec v1.0 ===" );
+
+// Caso valido: devolver el struct sin perder campos.
+try {
+    normalized = validator.validate( fixture );
+    if ( !isStruct( normalized ) || normalized.name != "LogGuardian" || structCount( normalized ) != 8 ) {
+        throw( message="El resultado no contiene los ocho campos esperados." );
+    }
+    println( "[OK] Acepta el JSON valido de LogGuardian." );
+    passed++;
+} catch ( any error ) {
+    println( "[ERROR] Rechazo un JSON valido: " & error.message );
+    failed++;
+}
+
+// Caso valido: normalizar espacios exteriores del nombre.
+try {
+    padded = duplicate( fixture );
+    padded.name = "  LogGuardianTest  ";
+    normalizedPadded = validator.validate( padded );
+    if ( compare( normalizedPadded.name, "LogGuardianTest" ) != 0 ) {
+        throw( message="No se normalizaron los espacios del nombre." );
+    }
+    println( "[OK] Normaliza espacios exteriores." );
+    passed++;
+} catch ( any error ) {
+    println( "[ERROR] Fallo al normalizar: " & error.message );
+    failed++;
+}
+
+// Construir entradas deliberadamente invalidas.
+noName = duplicate( fixture );
+structDelete( noName, "name" );
+
+traversal = duplicate( fixture );
+traversal.name = "../Malicioso";
+
+wrongProvider = duplicate( fixture );
+wrongProvider.provider = "gemini";
+
+wrongModel = duplicate( fixture );
+wrongModel.model = "otro-modelo";
+
+withTool = duplicate( fixture );
+withTool.tools = [ { name: "search" } ];
+
+noSkills = duplicate( fixture );
+structDelete( noSkills, "skills" );
+
+extraField = duplicate( fixture );
+extraField.systemPrompt = "campo no admitido";
+
+numericDescription = duplicate( fixture );
+numericDescription.description = 123;
+
+emptyInstructions = duplicate( fixture );
+emptyInstructions.instructions = "   ";
+
+invalidCases = [
+    { label: "falta name", data: noName },
+    { label: "nombre con ruta insegura", data: traversal },
+    { label: "provider incorrecto", data: wrongProvider },
+    { label: "model incorrecto", data: wrongModel },
+    { label: "tools no vacio", data: withTool },
+    { label: "falta skills", data: noSkills },
+    { label: "campo adicional", data: extraField },
+    { label: "description numerica", data: numericDescription },
+    { label: "instructions vacias", data: emptyInstructions }
+];
+
+for ( item in invalidCases ) {
+    try {
+        validator.validate( item.data );
+        println( "[ERROR] Se acepto un caso invalido: " & item.label );
+        failed++;
+    } catch ( any error ) {
+        println( "[OK] Rechazado: " & item.label & " -> " & error.message );
+        passed++;
+    }
+}
+
+println( "=== RESUMEN: " & passed & " correctas, " & failed & " fallidas ===" );
+if ( failed > 0 ) {
+    throw( message="AgentSpec tiene " & failed & " prueba(s) fallida(s)." );
+}

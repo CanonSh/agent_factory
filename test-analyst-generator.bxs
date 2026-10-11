@@ -1,0 +1,43 @@
+
+/**
+ * Integracion:
+ * Analyst -> AgentSpec -> Generator
+ */
+
+try {
+    root = getDirectoryFromPath(getCurrentTemplatePath())
+
+    descripcion = "Crea un agente que ayude a estudiantes a comprender codigo Java, identificar errores y explicar como corregirlos en espanol."
+
+    // 1. Gemini interpreta la solicitud
+    println("1. Analizando solicitud con Gemini...")
+    spec = new lib.Analyst().analyze(descripcion)
+    println("[OK] Especificacion generada por Analyst")
+
+    // 2. Validar el contrato
+    println("2. Validando AgentSpec...")
+    spec = new lib.AgentSpec().validate(spec)
+    println("[OK] Agente propuesto: " & spec.name)
+
+    // 3. Generar proyecto
+    println("3. Generando proyecto BX Agents...")
+    generator = new lib.Generator(root)
+    ruta = generator.generate(spec)
+
+    // 4. Verificar archivos
+    if (!fileExists(ruta & "/Agent.bx")) {
+        throw(message="No se genero Agent.bx")
+    }
+
+    if (!fileExists(ruta & "/instructions.md")) {
+        throw(message="No se genero instructions.md")
+    }
+
+    println("[OK] Proyecto generado correctamente")
+    println("Ruta: " & ruta)
+    println("=== INTEGRACION EXITOSA ===")
+
+} catch (any error) {
+    println("[ERROR] " & error.message)
+    throw(message="Fallo la integracion: " & error.message)
+}

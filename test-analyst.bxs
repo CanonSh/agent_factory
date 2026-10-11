@@ -1,0 +1,23 @@
+/**
+ * Prueba aislada de Analyst -> AgentSpec (requiere GEMINI_API_KEY).
+ * Desde la raiz de agent_factory: boxlang test-analyst.bxs
+ */
+try {
+    println( "=== TEST ANALYST -> AGENTSPEC ===" );
+    description = "Crea un agente que ayude a estudiantes a entender codigo Java, detectar errores y explicar como corregirlos en espanol.";
+
+    analyst = new lib.Analyst();
+    spec = analyst.analyze( description );
+
+    if ( !isStruct( spec ) || structCount( spec ) != 8 ) {
+        throw( message="Analyst no devolvio el struct de ocho campos." );
+    }
+
+    println( "[OK] Analyst devolvio un AgentSpec valido." );
+    println( "Nombre propuesto: " & spec.name );
+    println( "Especificacion generada:" );
+    println( jsonSerialize( data: spec, pretty: true ) );
+} catch ( any error ) {
+    println( "[ERROR] " & error.message );
+    throw( message="Test Analyst fallido: " & error.message );
+}

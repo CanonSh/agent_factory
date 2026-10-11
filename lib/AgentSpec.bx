@@ -1,37 +1,93 @@
 /**
- * Contrato normalizado que comparten los componentes del Agent Factory.
+ * AgentSpec v1.0 — contrato de datos de Agent Factory.
+ *
+ * Recibe un struct con exactamente ocho campos, lo valida y devuelve
+ * un struct normalizado. No invoca IA, no lee ni escribe archivos.
+ *
+ * Uso:
+ *   spec = new lib.AgentSpec().validate( spec );
  */
 class {
 
-    function init( required struct data ) {
-        variables.data = normalize( arguments.data );
+    function init() {
         return this;
     }
 
-    function toStruct() {
-        return duplicate( variables.data );
-    }
+    struct function validate( required struct spec ) {
+        var expectedFields = [
+            "name", "description", "instructions", "provider", "model",
+            "tools", "skills", "subagents"
+        ];
 
-    private function normalize( required struct data ) {
-        var result = duplicate( arguments.data );
-        var requiredFields = [ "name", "description", "instructions", "provider", "model" ];
-
-        for ( var field in requiredFields ) {
-            if ( !result.keyExists( field ) || !isSimpleValue( result[ field ] ) || !len( trim( result[ field ] & "" ) ) ) {
-                throw( message="Campo requerido o invalido: " & field );
-            }
-            result[ field ] = trim( result[ field ] & "" );
-        }
-
-        for ( var listField in [ "tools", "skills", "subagents" ] ) {
-            if ( !result.keyExists( listField ) ) {
-                result[ listField ] = [];
-            }
-            if ( !isArray( result[ listField ] ) ) {
-                throw( message="El campo " & listField & " debe ser un arreglo." );
+        // 1. Todos los campos del contrato son obligatorios.
+        for ( var field in expectedFields ) {
+            if ( !structKeyExists( arguments.spec, field ) ) {
+                throw( message="AgentSpec: falta el campo obligatorio '" & field & "'." );
             }
         }
 
-        return result;
+        // 2. No se aceptan campos nuevos sin modificar el contrato del equipo.
+        for ( var suppliedKey in structKeyArray( arguments.spec ) ) {
+            var isKnown = false;
+            for ( var allowedKey in expectedFields ) {
+                if ( compareNoCase( suppliedKey, allowedKey ) == 0 ) {
+                    isKnown = true;
+                    break;
+                }
+            }
+            if ( !isKnown ) {
+                throw( message="AgentSpec: campo no permitido '" & suppliedKey & "'." );
+            }
+        }
+
+        // 3. Tipos exactos: no convertir numeros ni booleanos en strings.
+        for ( var field in [ "name", "description", "instructions", "provider", "model" ] ) {
+            if ( !isInstanceOf( arguments.spec[ field ], "java.lang.String" ) ) {
+                throw( message="AgentSpec: '" & field & "' debe ser un texto (string)." );
+            }
+            if ( !len( trim( arguments.spec[ field ] ) ) ) {
+                throw( message="AgentSpec: '" & field & "' no puede estar vacio." );
+            }
+        }
+
+        // 4. El nombre tambien se usara como carpeta en output/.
+        var agentName = trim( arguments.spec.name );
+        if ( !reFind( "^[A-Za-z][A-Za-z0-9_-]{0,49}$", agentName ) ) {
+            throw( message="AgentSpec: 'name' debe comenzar con una letra, contener solo letras ASCII, numeros, _ o -, y tener maximo 50 caracteres." );
+        }
+
+        // 5. Para v1.0 usamos unicamente la conexion ya probada.
+        var providerName = trim( arguments.spec.provider );
+        var modelName = trim( arguments.spec.model );
+
+        if ( compare( providerName, "openai-compatible" ) != 0 ) {
+            throw( message="AgentSpec: 'provider' debe ser exactamente 'openai-compatible' en v1.0." );
+        }
+        if ( compare( modelName, "gemini-3.5-flash-lite" ) != 0 ) {
+            throw( message="AgentSpec: 'model' debe ser exactamente 'gemini-3.5-flash-lite' en v1.0." );
+        }
+
+        // 6. Estas capacidades todavia no estan implementadas en Generator.
+        for ( var field in [ "tools", "skills", "subagents" ] ) {
+            if ( !isArray( arguments.spec[ field ] ) ) {
+                throw( message="AgentSpec: '" & field & "' debe ser un array []." );
+            }
+            if ( arrayLen( arguments.spec[ field ] ) != 0 ) {
+                throw( message="AgentSpec: '" & field & "' debe estar vacio [] en v1.0." );
+            }
+        }
+
+        // 7. Devolver una copia limpia. La entrada original no se modifica.
+        // El texto de instructions se conserva para respetar los saltos de linea.
+        return {
+            name: agentName,
+            description: trim( arguments.spec.description ),
+            instructions: arguments.spec.instructions,
+            provider: providerName,
+            model: modelName,
+            tools: [],
+            skills: [],
+            subagents: []
+        };
     }
 }

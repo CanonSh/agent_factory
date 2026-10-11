@@ -1,42 +1,52 @@
-/** Valida la salida del generador sin ejecutar comandos externos. */
+/**
+ * Validator.bx - Compila un proyecto BX Agents generado por Agent Factory.
+ *
+ * Contrato v1.0:
+ *   new lib.Validator().validate(projectPath)
+ *   -> { success, projectPath, exitCode, output, errors }
+ *
+ * Requiere lib/Shell.bx v1.0 probado en Windows.
+ */
 class {
 
-    function validate( required string projectPath ) {
-        var result = {
-            valid: true,
-            projectPath: arguments.projectPath,
-            errors: [],
-            files: []
+    public struct function validate( required string projectPath ) {
+        var path = trim( arguments.projectPath );
+
+        if ( !len( path ) ) {
+            throw( message="Validator: projectPath no puede estar vacio." );
+        }
+        if ( !directoryExists( path ) ) {
+            throw( message="Validator: no existe el proyecto: " & path );
+        }
+        if ( !fileExists( path & "/Agent.bx" ) ) {
+            throw( message="Validator: no existe Agent.bx en el proyecto: " & path );
+        }
+
+        // IMPORTANTE: el build se ejecuta DENTRO del proyecto, no en la raiz
+        // de Agent Factory. shell.run() devuelve el codigo de salida real.
+        var buildResult = new lib.Shell().run(
+            "boxlang module:bxagents build",
+            path
+        );
+
+        var errors = [];
+        if ( !buildResult.success ) {
+            var detail = trim( buildResult.stderr );
+            if ( !len( detail ) ) {
+                detail = trim( buildResult.stdout );
+            }
+            if ( !len( detail ) ) {
+                detail = "BX Agents build fallo con codigo de salida " & buildResult.exitCode & " sin mensaje de diagnostico.";
+            }
+            arrayAppend( errors, detail );
+        }
+
+        return {
+            success: buildResult.success,
+            projectPath: path,
+            exitCode: buildResult.exitCode,
+            output: buildResult.output,
+            errors: errors
         };
-        var requiredFiles = [ "Agent.bx", "instructions.md", "README.md", "agent-spec.json" ];
-
-        if ( !directoryExists( arguments.projectPath ) ) {
-            result.valid = false;
-            arrayAppend( result.errors, "No existe el proyecto: " & arguments.projectPath );
-            return result;
-        }
-
-        for ( var fileName in requiredFiles ) {
-            var path = arguments.projectPath & "/" & fileName;
-            if ( !fileExists( path ) ) {
-                result.valid = false;
-                arrayAppend( result.errors, "Falta el archivo requerido: " & fileName );
-            } else {
-                arrayAppend( result.files, fileName );
-            }
-        }
-
-        var specPath = arguments.projectPath & "/agent-spec.json";
-        if ( fileExists( specPath ) ) {
-            try {
-                var spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
-                new lib.AgentSpec( spec );
-            } catch ( any error ) {
-                result.valid = false;
-                arrayAppend( result.errors, "agent-spec.json no es valido: " & error.message );
-            }
-        }
-
-        return result;
     }
 }

@@ -1,28 +1,166 @@
-// Flujo local: especificacion -> generacion -> validacion -> evaluacion.
+/**
+ * Agent Factory - orquestador MVP v1.3.
+ * Flujo: descripcion -> Analyst -> AgentSpec -> Generator -> Validator/Shell.
+ *
+ * Ejemplos:
+ *   boxlang factory.bxs --help
+ *   boxlang factory.bxs --description="Crea un agente que explique SQL" --preview
+ *   boxlang factory.bxs --description="Crea un agente que explique SQL" --name=SQLTutorCorregido
+ *   boxlang factory.bxs --description="Crea un agente que explique SQL" --name=SQLTutorEvaluado --evaluate
+ *   boxlang factory.bxs "Crea un agente que explique SQL" --name=SQLTutorCorregido
+ *   boxlang factory.bxs                        (interactivo)
+ *
+ * IMPORTANTE: Evaluator es opcional con --evaluate y corre solo tras build valido.
+ *             No implementa autorreparacion ni sobreescribe agentes existentes.
+ */
+
+rootPath = getDirectoryFromPath( getCurrentTemplatePath() );
+cliArgs = CLIGetArgs();
+
+if ( structKeyExists( cliArgs.options, "help" ) ) {
+    println( "=== AGENT FACTORY - AYUDA ===" );
+    println( "Uso interactivo: boxlang factory.bxs" );
+    println( 'Uso con texto: boxlang factory.bxs "Crea un agente para analizar logs"' );
+    println( 'Uso recomendado: boxlang factory.bxs --description="Crea un agente para analizar logs" --name=LogTutorDemo' );
+    println( 'Verificar entrada sin generar: boxlang factory.bxs --description="Crea un agente para analizar logs" --preview' );
+    println( 'Generar, compilar y evaluar: boxlang factory.bxs --description="Crea un agente para analizar logs" --name=LogTutorEvaluado --evaluate' );
+    println( "--evaluate: ejecuta 3 pruebas del agente y un juez Gemini despues de un build correcto." );
+    println( "Nota: output/<nombre> no se sobreescribe." );
+    CLIExit( 0 );
+}
+
+println( "=== AGENT FACTORY v1.3 ===" );
+
 try {
-    root = getDirectoryFromPath( getCurrentTemplatePath() );
-    specPath = root & "examples/logguardian.json";
-    spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
+    userDescription = "";
 
-    normalizedSpec = new lib.AgentSpec( spec ).toStruct();
-    generator = new lib.Generator( root );
-    existingPath = root & "output/" & normalizedSpec.name;
-    if ( directoryExists( existingPath ) ) {
-        generatedPath = existingPath;
-        println( "SALIDA EXISTENTE: se validara sin sobrescribirla." );
+    // Prioridad 1: opcion explicita, para evitar ambiguedades entre versiones del CLI.
+    if ( structKeyExists( cliArgs.options, "description" ) ) {
+        userDescription = trim( cliArgs.options.description );
     } else {
-        generatedPath = generator.generate( normalizedSpec );
+        // Prioridad 2: argumento posicional.
+        // Algunas invocaciones incluyen factory.bxs como primer positional.
+        positionalIndex = 1;
+        if ( arrayLen( cliArgs.positionals ) >= 1 ) {
+            firstPositional = trim( cliArgs.positionals[1] );
+            if ( lCase( getFileFromPath( firstPositional ) ) == "factory.bxs" ) {
+                positionalIndex = 2;
+            }
+        }
+        if ( arrayLen( cliArgs.positionals ) >= positionalIndex ) {
+            userDescription = trim( cliArgs.positionals[positionalIndex] );
+        }
     }
 
-    validation = new lib.Validator().validate( generatedPath );
-    evaluation = new lib.Evaluator().evaluate( validation );
+    // Prioridad 3: entrada interactiva.
+    if ( !len( userDescription ) && !structKeyExists( cliArgs.options, "preview" ) ) {
+        userDescription = trim( CLIRead( "Describe el agente que necesitas: " ) );
+    }
 
-    println( "AGENTE GENERADO: " & generatedPath );
-    println( "VALIDACION: " & jsonSerialize( validation ) );
-    println( "EVALUACION: " & jsonSerialize( evaluation ) );
+    if ( !len( userDescription ) ) {
+        throw( message="Factory: debes proporcionar una descripcion no vacia." );
+    }
+
+    shouldEvaluate = structKeyExists( cliArgs.options, "evaluate" );
+    totalSteps = shouldEvaluate ? "5" : "4";
+
+    println( "[INFO] Descripcion recibida: " & userDescription );
+    if ( structKeyExists( cliArgs.options, "name" ) ) {
+        println( "[INFO] Nombre solicitado: " & cliArgs.options.name );
+    }
+
+    // Prueba de interpretacion de argumentos: no utiliza API Key, IA ni filesystem de output/.
+    if ( structKeyExists( cliArgs.options, "preview" ) ) {
+        if ( shouldEvaluate ) {
+            println( "[INFO] --evaluate se ejecutara solo en modo real despues de un build correcto." );
+        }
+        println( "[OK] Vista previa completada; no se ha generado ningun agente." );
+        CLIExit( 0 );
+    }
+
+    println( "[1/" & totalSteps & "] Analyst: generando especificacion con Gemini..." );
+    spec = new lib.Analyst().analyze( userDescription );
+
+    if ( structKeyExists( cliArgs.options, "name" ) ) {
+        spec.name = cliArgs.options.name;
+    }
+
+    println( "[2/" & totalSteps & "] AgentSpec: validando los ocho campos..." );
+    validatedSpec = new lib.AgentSpec().validate( spec );
+    println( "[OK] Nombre: " & validatedSpec.name );
+    println( "[OK] Proposito: " & validatedSpec.description );
+
+    println( "[3/" & totalSteps & "] Generator: creando proyecto BX Agents..." );
+    projectPath = new lib.Generator( rootPath ).generate( validatedSpec );
+    println( "[OK] Proyecto creado: " & projectPath );
+
+    println( "[4/" & totalSteps & "] Validator: compilando proyecto BX Agents..." );
+    buildResult = new lib.Validator().validate( projectPath );
+
+    if ( !buildResult.success ) {
+        println( "[ERROR] El proyecto se genero, pero el build fallo." );
+        println( "Proyecto: " & projectPath );
+        println( "Codigo de salida: " & buildResult.exitCode );
+        if ( arrayLen( buildResult.errors ) > 0 ) {
+            for ( buildError in buildResult.errors ) {
+                println( "Diagnostico: " & buildError );
+            }
+        } else {
+            println( "Salida: " & buildResult.output );
+        }
+        println( "No se ejecutara Evaluator; no hay autorreparacion en v1.3." );
+        CLIExit( 1 );
+    }
+
+    println( "[OK] Build correcto (exitCode=" & buildResult.exitCode & ")." );
+
+    if ( shouldEvaluate ) {
+        println( "[5/5] Evaluator: ejecutando 3 pruebas reales y el juez Gemini..." );
+        println( "[INFO] Esta etapa hace llamadas adicionales a Gemini." );
+        evaluationResult = new lib.Evaluator().evaluate( projectPath, validatedSpec );
+
+        if ( !evaluationResult.success ) {
+            println( "[ERROR] El agente se genero y compilo, pero su evaluacion quedo incompleta." );
+            println( "Proyecto compilado: " & projectPath );
+            println( "Reporte: " & evaluationResult.report );
+            if ( arrayLen( evaluationResult.errors ) > 0 ) {
+                for ( evaluationError in evaluationResult.errors ) {
+                    println( "Diagnostico de evaluacion: " & evaluationError );
+                }
+            }
+            println( "Las puntuaciones son orientativas; no se asigna nota por una evaluacion incompleta." );
+            CLIExit( 2 );
+        }
+
+        println( "[OK] Evaluacion completada. Puntaje orientativo: " & evaluationResult.score & "/100" );
+        for ( resultIndex = 1; resultIndex <= arrayLen( evaluationResult.tests ); resultIndex++ ) {
+            testResult = evaluationResult.tests[resultIndex];
+            testStatus = testResult.passed ? "APROBADA" : "NO APROBADA";
+            println( "  Prueba " & resultIndex & ": " & testStatus );
+            println( "  Pregunta: " & testResult.input );
+            println( "  Criterio: " & testResult.reason );
+        }
+        println( "Reporte: " & evaluationResult.report );
+    }
+
+    println( "" );
+    if ( shouldEvaluate ) {
+        println( "=== AGENTE CREADO, COMPILADO Y EVALUADO ===" );
+    } else {
+        println( "=== AGENTE CREADO Y COMPILADO ===" );
+    }
+    println( "Nombre: " & validatedSpec.name );
+    println( "Ruta: " & projectPath );
+    println( "Siguiente paso: probarlo desde esa carpeta con:" );
+    println( '  boxlang module:bxagents invoke --message="Hola, presentate en espanol" --json' );
+    println( "" );
+    if ( !shouldEvaluate ) {
+        println( "Evaluacion opcional: agrega --evaluate al crear el siguiente agente." );
+    }
+    println( "Pendiente: reparacion de builds (maximo 3 intentos)." );
 } catch ( any error ) {
-    println( "ERROR DEL FACTORY: " & error.message );
-    if ( error.keyExists( "detail" ) && len( error.detail & "" ) ) {
-        println( error.detail );
-    }
+    println( "[ERROR] Agent Factory no pudo completar el flujo." );
+    println( "Detalle: " & error.message );
+    println( "Si el nombre ya existe en output/, repite usando --name=OtroNombre." );
+    CLIExit( 1 );
 }
