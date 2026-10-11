@@ -1,0 +1,28 @@
+// Flujo local: especificacion -> generacion -> validacion -> evaluacion.
+try {
+    root = getDirectoryFromPath( getCurrentTemplatePath() );
+    specPath = root & "examples/logguardian.json";
+    spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
+
+    normalizedSpec = new lib.AgentSpec( spec ).toStruct();
+    generator = new lib.Generator( root );
+    existingPath = root & "output/" & normalizedSpec.name;
+    if ( directoryExists( existingPath ) ) {
+        generatedPath = existingPath;
+        println( "SALIDA EXISTENTE: se validara sin sobrescribirla." );
+    } else {
+        generatedPath = generator.generate( normalizedSpec );
+    }
+
+    validation = new lib.Validator().validate( generatedPath );
+    evaluation = new lib.Evaluator().evaluate( validation );
+
+    println( "AGENTE GENERADO: " & generatedPath );
+    println( "VALIDACION: " & jsonSerialize( validation ) );
+    println( "EVALUACION: " & jsonSerialize( evaluation ) );
+} catch ( any error ) {
+    println( "ERROR DEL FACTORY: " & error.message );
+    if ( error.keyExists( "detail" ) && len( error.detail & "" ) ) {
+        println( error.detail );
+    }
+}

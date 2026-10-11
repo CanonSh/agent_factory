@@ -1,0 +1,37 @@
+/**
+ * Contrato normalizado que comparten los componentes del Agent Factory.
+ */
+class {
+
+    function init( required struct data ) {
+        variables.data = normalize( arguments.data );
+        return this;
+    }
+
+    function toStruct() {
+        return duplicate( variables.data );
+    }
+
+    private function normalize( required struct data ) {
+        var result = duplicate( arguments.data );
+        var requiredFields = [ "name", "description", "instructions", "provider", "model" ];
+
+        for ( var field in requiredFields ) {
+            if ( !result.keyExists( field ) || !isSimpleValue( result[ field ] ) || !len( trim( result[ field ] & "" ) ) ) {
+                throw( message="Campo requerido o invalido: " & field );
+            }
+            result[ field ] = trim( result[ field ] & "" );
+        }
+
+        for ( var listField in [ "tools", "skills", "subagents" ] ) {
+            if ( !result.keyExists( listField ) ) {
+                result[ listField ] = [];
+            }
+            if ( !isArray( result[ listField ] ) ) {
+                throw( message="El campo " & listField & " debe ser un arreglo." );
+            }
+        }
+
+        return result;
+    }
+}

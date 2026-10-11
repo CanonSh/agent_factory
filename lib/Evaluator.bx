@@ -1,0 +1,21 @@
+/** Produce una evaluacion determinista de la salida generada. */
+class {
+
+    function evaluate( required struct validation ) {
+        var total = 4;
+        var passed = arrayLen( arguments.validation.files );
+        var score = round( ( passed / total ) * 100 );
+
+        if ( !arguments.validation.valid ) {
+            score = min( score, 49 );
+        }
+
+        return {
+            valid: arguments.validation.valid,
+            score: score,
+            passed: passed,
+            total: total,
+            errors: arguments.validation.errors
+        };
+    }
+}

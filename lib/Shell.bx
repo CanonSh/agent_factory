@@ -1,0 +1,8 @@
+/** Utilidades de ejecucion sin ocultar errores del proceso llamador. */
+class {
+
+    function printResult( required string label, required struct result ) {
+        println( arguments.label & ": " & jsonSerialize( arguments.result ) );
+        return arguments.result;
+    }
+}

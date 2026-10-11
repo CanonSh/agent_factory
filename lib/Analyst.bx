@@ -1,0 +1,20 @@
+/**
+ * Convierte una entrada descriptiva en una especificacion minima.
+ * La llamada a un modelo queda fuera de este MVP para evitar credenciales
+ * y efectos remotos durante las pruebas locales.
+ */
+class {
+
+    function analyze( required string name, required string description, required string instructions ) {
+        return new lib.AgentSpec({
+            name: arguments.name,
+            description: arguments.description,
+            instructions: arguments.instructions,
+            provider: "openai-compatible",
+            model: "gemini-3.5-flash-lite",
+            tools: [],
+            skills: [],
+            subagents: []
+        }).toStruct();
+    }
+}

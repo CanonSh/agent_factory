@@ -1,0 +1,42 @@
+/** Valida la salida del generador sin ejecutar comandos externos. */
+class {
+
+    function validate( required string projectPath ) {
+        var result = {
+            valid: true,
+            projectPath: arguments.projectPath,
+            errors: [],
+            files: []
+        };
+        var requiredFiles = [ "Agent.bx", "instructions.md", "README.md", "agent-spec.json" ];
+
+        if ( !directoryExists( arguments.projectPath ) ) {
+            result.valid = false;
+            arrayAppend( result.errors, "No existe el proyecto: " & arguments.projectPath );
+            return result;
+        }
+
+        for ( var fileName in requiredFiles ) {
+            var path = arguments.projectPath & "/" & fileName;
+            if ( !fileExists( path ) ) {
+                result.valid = false;
+                arrayAppend( result.errors, "Falta el archivo requerido: " & fileName );
+            } else {
+                arrayAppend( result.files, fileName );
+            }
+        }
+
+        var specPath = arguments.projectPath & "/agent-spec.json";
+        if ( fileExists( specPath ) ) {
+            try {
+                var spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
+                new lib.AgentSpec( spec );
+            } catch ( any error ) {
+                result.valid = false;
+                arrayAppend( result.errors, "agent-spec.json no es valido: " & error.message );
+            }
+        }
+
+        return result;
+    }
+}
