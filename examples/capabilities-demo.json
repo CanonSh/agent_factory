@@ -1,0 +1,25 @@
+{
+  "name": "CapabilityDemo",
+  "description": "Agente con herramientas de texto y matematica, una guia de revision y un especialista delegado.",
+  "instructions": "Eres el coordinador. Para conteos exactos utiliza las tools disponibles; sigue la skill de analisis y delega tareas especializadas al subagente cuando corresponda.",
+  "provider": "openai-compatible",
+  "model": "gemini-3.5-flash-lite",
+  "tools": [
+    "text_metrics",
+    "arithmetic"
+  ],
+  "skills": [
+    {
+      "name": "analisis-texto",
+      "description": "Procedimiento para revisar textos con claridad.",
+      "instructions": "Antes de dar una conclusion: identifica el objetivo, analiza el texto, explica los hallazgos y separa hechos de recomendaciones."
+    }
+  ],
+  "subagents": [
+    {
+      "name": "revision-especialista",
+      "description": "Especialista en revisar coherencia y claridad.",
+      "instructions": "Revisa la claridad del texto, identifica contradicciones y presenta recomendaciones breves al agente coordinador."
+    }
+  ]
+}

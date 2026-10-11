@@ -1,5 +1,5 @@
 /**
- * Analyst v1.1 — descripcion en lenguaje natural -> AgentSpec (struct).
+ * Analyst v1.6 — descripcion en lenguaje natural -> AgentSpec (struct).
  *
  * Dependencias: bx-ai 3.5.0+19, lib/AgentSpec.bx, GEMINI_API_KEY.
  * Modelo probado: gemini-3.5-flash-lite, via openai-compatible.
@@ -29,7 +29,7 @@ class {
             throw( message="Analyst: GEMINI_API_KEY esta vacia o tiene el valor de ejemplo." );
         }
 
-        // Instrucciones estrictas para alinear la salida con AgentSpec v1.0.
+        // Instrucciones estrictas para alinear la salida con AgentSpec v1.6.
         var prompt = arrayToList( [
             "Eres Analyst, un componente de Agent Factory.",
             "Convierte la solicitud del usuario en UN SOLO objeto JSON valido.",
@@ -44,12 +44,19 @@ class {
             "  deben indicar objetivos, limites y como responder sin inventar datos.",
             "- provider: exactamente openai-compatible.",
             "- model: exactamente gemini-3.5-flash-lite.",
-            "- tools: [] (arreglo vacio, sin excepciones).",
-            "- skills: [] (arreglo vacio, sin excepciones).",
-            "- subagents: [] (arreglo vacio, sin excepciones).",
-            "No agregues otros campos ni claves API, rutas de archivos o codigo ejecutable.",
-            "Si piden acceso a herramientas que el MVP no ofrece, no afirmes que las tiene;",
-            "describe el comportamiento posible con los mensajes que reciba el agente.",
+            "- tools: array con cero o mas identificadores EXACTOS: text_metrics, arithmetic.",
+            "  text_metrics: cuenta caracteres o palabras en textos; arithmetic: suma dos numeros.",
+            "  Solo incluye herramientas solicitadas y soportadas. Maximo 2 sin duplicados.",
+            "- skills: array de maximo 3 objetos con {name,description,instructions}.",
+            "  name: slug minusculas a-z, numeros y guion, comenzando con letra, maximo 50.",
+            "  description e instructions: textos utiles y precisos; no codigo ejecutable.",
+            "  Incluye skill si se pide una especializacion o metodologia reutilizable.",
+            "- subagents: array de maximo 3 objetos con {name,description,instructions}.",
+            "  name: slug minusculas y guiones, unico y distinto del nombre raiz.",
+            "  Crea subagentes cuando se solicite delegacion o especialistas diferenciados.",
+            "  Evita subagentes innecesarios para una tarea simple.",
+            "- Si una tool solicitada no pertenece al catalogo, NO inventes codigo ni identifiers.",
+            "No agregues otros campos, claves API, rutas de archivos o codigo ejecutable.",
             "Solicitud del usuario:",
             userDescription
         ], char(10) );

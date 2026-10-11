@@ -67,12 +67,7 @@ class {
             throw( message="Generator.repair: la version de destino ya existe: " & destination );
         }
 
-        var trustedAgent = renderTemplate( "Agent.bx.tpl", {
-            NAME_LITERAL: bxStringLiteral( agentName ),
-            DESCRIPTION_LITERAL: bxStringLiteral( arguments.spec.description ),
-            PROVIDER_LITERAL: bxStringLiteral( arguments.spec.provider ),
-            MODEL_LITERAL: bxStringLiteral( arguments.spec.model )
-        } );
+        var trustedAgent = renderAgentSource( arguments.spec, agentName, arguments.spec.description );
         var trustedInstructions = renderTemplate( "instructions.md.tpl", {
             NAME: agentName,
             DESCRIPTION: arguments.spec.description,
@@ -96,6 +91,42 @@ class {
         ] ) {
             var candidatePath = previous & "/" & candidate.file;
             if ( !fileExists( candidatePath ) || fileRead( candidatePath, "UTF-8" ) != candidate.expected ) {
+                changedSources = true;
+            }
+        }
+
+        // Tambien detectar archivos declarativos o herramientas dañadas, sin
+        // ejecutar ni interpretar codigo producido por Gemini.
+        for ( var toolType in arguments.spec.tools ) {
+            var toolFile = toolType == "text_metrics" ? "TextMetrics" : "Arithmetic";
+            var toolPath = previous & "/tools/" & toolFile & ".bx";
+            var trustedTool = renderTemplate( "tools/" & toolFile & ".bx.tpl", {} );
+            if ( !fileExists( toolPath ) || fileRead( toolPath, "UTF-8" ) != trustedTool ) {
+                changedSources = true;
+            }
+        }
+        for ( var skill in arguments.spec.skills ) {
+            var skillPath = previous & "/skills/" & skill.name & "/SKILL.md";
+            var trustedSkill = renderTemplate( "SKILL.md.tpl", {
+                NAME: skill.name,
+                DESCRIPTION_LITERAL: yamlLiteral( skill.description ),
+                INSTRUCTIONS: skill.instructions
+            } );
+            if ( !fileExists( skillPath ) || fileRead( skillPath, "UTF-8" ) != trustedSkill ) {
+                changedSources = true;
+            }
+        }
+        for ( var child in arguments.spec.subagents ) {
+            var childAgent = previous & "/subagents/" & child.name & "/Agent.bx";
+            var childInstructions = previous & "/subagents/" & child.name & "/instructions.md";
+            var trustedChildAgent = renderAgentSource( arguments.spec, child.name, child.description, false );
+            var trustedChildInstructions = renderTemplate( "instructions.md.tpl", {
+                NAME: child.name,
+                DESCRIPTION: child.description,
+                INSTRUCTIONS: child.instructions
+            } );
+            if ( !fileExists( childAgent ) || fileRead( childAgent, "UTF-8" ) != trustedChildAgent
+                || !fileExists( childInstructions ) || fileRead( childInstructions, "UTF-8" ) != trustedChildInstructions ) {
                 changedSources = true;
             }
         }
@@ -242,7 +273,7 @@ class {
         }
 
         var code = arguments.brokenSource;
-        var protectedLine = "(class[ ]+extends|super[.]init[ ]*[(]|name[ ]*:|description[ ]*:|model[ ]*:|provider[ ]*:|apiKey[ ]*:|baseURL[ ]*:|function[ ]+test[ ]*[(])";
+        var protectedLine = "(class[ ]+extends|super[.]init[ ]*[(]|name[ ]*:|description[ ]*:|model[ ]*:|provider[ ]*:|apiKey[ ]*:|baseURL[ ]*:|function[ ]+test[ ]*[(]|function[ ]+configure[ ]*[(]|subAgents[ ]*:)";
         for ( var edit in proposal.edits ) {
             if ( !isStruct( edit ) || !edit.keyExists( "old" ) || !edit.keyExists( "new" )
                 || !isSimpleValue( edit.old ) || !isSimpleValue( edit.new ) ) {
@@ -360,12 +391,7 @@ class {
             directoryCreate( arguments.destination & "/" & folder, true );
         }
 
-        var agentFile = renderTemplate( "Agent.bx.tpl", {
-            NAME_LITERAL: bxStringLiteral( agentName ),
-            DESCRIPTION_LITERAL: bxStringLiteral( arguments.spec.description ),
-            PROVIDER_LITERAL: bxStringLiteral( arguments.spec.provider ),
-            MODEL_LITERAL: bxStringLiteral( arguments.spec.model )
-        } );
+        var agentFile = renderAgentSource( arguments.spec, agentName, arguments.spec.description );
 
         var instructionsFile = renderTemplate( "instructions.md.tpl", {
             NAME: agentName,
@@ -386,34 +412,97 @@ class {
         fileWrite( arguments.destination & "/.env.example", "GEMINI_API_KEY=" & char(10), "UTF-8" );
         fileWrite( arguments.destination & "/.gitignore", ".env" & char(10) & ".build/" & char(10) & "logs/" & char(10), "UTF-8" );
 
+        writeCapabilities( arguments.spec, arguments.destination );
         return arguments.destination;
     }
 
 
     private function validateSpec( required struct spec ) {
-        for ( var field in [ "name", "description", "instructions", "provider", "model" ] ) {
-            if ( !arguments.spec.keyExists( field ) || !isSimpleValue( arguments.spec[ field ] ) || !len( trim( arguments.spec[ field ] ) ) ) {
-                throw( message="Campo requerido o invalido: " & field );
+        // El contrato unico v1.6 valida tanto los campos basicos como las capacidades.
+        new lib.AgentSpec().validate( arguments.spec );
+    }
+
+    /** Genera el codigo raiz o de un subagente. No incorpora codigo de Gemini. */
+    private string function renderAgentSource(
+        required struct spec,
+        required string agentName,
+        required string agentDescription,
+        boolean includeSubagents = true
+    ) {
+        var source = renderTemplate( "Agent.bx.tpl", {
+            NAME_LITERAL: bxStringLiteral( arguments.agentName ),
+            DESCRIPTION_LITERAL: bxStringLiteral( arguments.agentDescription ),
+            PROVIDER_LITERAL: bxStringLiteral( arguments.spec.provider ),
+            MODEL_LITERAL: bxStringLiteral( arguments.spec.model )
+        } );
+
+        if ( arguments.includeSubagents && arrayLen( arguments.spec.subagents ) > 0 ) {
+            if ( right( trim( source ), 1 ) != "}" ) {
+                throw( message="Generator: plantilla Agent.bx.tpl no termina con la clase esperada." );
+            }
+            var references = [];
+            for ( var child in arguments.spec.subagents ) {
+                arrayAppend( references, bxStringLiteral( child.name ) );
+            }
+            var extraMethod = arrayToList( [
+                "",
+                "    function configure() {",
+                "        return {",
+                "            subAgents: [ " & arrayToList( references, ", " ) & " ]",
+                "        };",
+                "    }",
+                ""
+            ], char(10) );
+            source = reReplace( trim( source ), "}$", extraMethod & "}", "one" ) & char(10);
+        }
+        return source;
+    }
+
+    private string function yamlLiteral( required string rawValue ) {
+        var value = replace( arguments.rawValue, char(92), char(92) & char(92), "all" );
+        value = replace( value, char(34), char(92) & char(34), "all" );
+        value = replace( value, char(13), " ", "all" );
+        value = replace( value, char(10), " ", "all" );
+        return char(34) & value & char(34);
+    }
+
+    private void function writeCapabilities( required struct spec, required string destination ) {
+        // Las tools son recetas de codigo revisado; nunca se acepta codigo BoxLang libre desde IA.
+        for ( var toolType in arguments.spec.tools ) {
+            if ( toolType == "text_metrics" ) {
+                fileWrite( arguments.destination & "/tools/TextMetrics.bx",
+                    renderTemplate( "tools/TextMetrics.bx.tpl", {} ), "UTF-8" );
+            } else if ( toolType == "arithmetic" ) {
+                fileWrite( arguments.destination & "/tools/Arithmetic.bx",
+                    renderTemplate( "tools/Arithmetic.bx.tpl", {} ), "UTF-8" );
+            } else {
+                throw( message="Generator: herramienta fuera del catalogo permitido: " & toolType );
             }
         }
 
-        // Bloquea rutas arbitrarias y nombres incompatibles con carpetas.
-        if ( !reFind( "^[A-Za-z][A-Za-z0-9_-]{0,49}$", trim( arguments.spec.name ) ) ) {
-            throw( message="name debe comenzar con una letra y usar solo letras, numeros, - o _ (max. 50)." );
+        for ( var skill in arguments.spec.skills ) {
+            var skillDir = arguments.destination & "/skills/" & skill.name;
+            directoryCreate( skillDir, true );
+            var skillMarkdown = renderTemplate( "SKILL.md.tpl", {
+                NAME: skill.name,
+                DESCRIPTION_LITERAL: yamlLiteral( skill.description ),
+                INSTRUCTIONS: skill.instructions
+            } );
+            fileWrite( skillDir & "/SKILL.md", skillMarkdown, "UTF-8" );
         }
 
-        // Este MVP solo implementa el proveedor probado manualmente.
-        if ( lCase( trim( arguments.spec.provider ) ) != "openai-compatible" ) {
-            throw( message="MVP: provider debe ser openai-compatible." );
-        }
-
-        for ( var field in [ "tools", "skills", "subagents" ] ) {
-            if ( !arguments.spec.keyExists( field ) || !isArray( arguments.spec[ field ] ) ) {
-                throw( message="El campo " & field & " debe ser un arreglo." );
-            }
-            if ( arrayLen( arguments.spec[ field ] ) > 0 ) {
-                throw( message="MVP: todavia no se generan " & field & ". Debe estar vacio." );
-            }
+        // Convencion real: subagents/ es plano. Cada subagente tiene Agent.bx + instructions.md.
+        for ( var child in arguments.spec.subagents ) {
+            var childDir = arguments.destination & "/subagents/" & child.name;
+            directoryCreate( childDir, true );
+            fileWrite( childDir & "/Agent.bx",
+                renderAgentSource( arguments.spec, child.name, child.description, false ), "UTF-8" );
+            fileWrite( childDir & "/instructions.md",
+                renderTemplate( "instructions.md.tpl", {
+                    NAME: child.name,
+                    DESCRIPTION: child.description,
+                    INSTRUCTIONS: child.instructions
+                } ), "UTF-8" );
         }
     }
 

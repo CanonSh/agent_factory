@@ -1,0 +1,52 @@
+/** Prueba integral sin llamadas a Gemini: genera y compila con BX Agents. */
+root = getDirectoryFromPath( getCurrentTemplatePath() );
+println( "=== TEST CAPACIDADES v1.6 ===" );
+try {
+    spec = jsonDeserialize( fileRead( root & "examples/capabilities-demo.json", "UTF-8" ) );
+    spec.name = "CapabilityDemo_" & left( replace( createUUID(), "-", "", "all" ), 8 );
+    spec = new lib.AgentSpec().validate( spec );
+    println( "[OK] AgentSpec: tools, skills y subagents admitidos." );
+
+    badSpec = duplicate( spec );
+    badSpec.tools = [ "shell_access" ];
+    wasRejected = false;
+    try {
+        new lib.AgentSpec().validate( badSpec );
+    } catch ( any rejected ) {
+        wasRejected = true;
+        println( "[OK] Tool desconocida rechazada: " & rejected.message );
+    }
+    if ( !wasRejected ) { throw( message="AgentSpec acepto una herramienta no permitida." ); }
+
+    generator = new lib.Generator( root );
+    path = generator.generate( spec );
+    println( "[OK] Generado: " & path );
+
+    expected = [
+        "/Agent.bx",
+        "/tools/TextMetrics.bx",
+        "/tools/Arithmetic.bx",
+        "/skills/analisis-texto/SKILL.md",
+        "/subagents/revision-especialista/Agent.bx",
+        "/subagents/revision-especialista/instructions.md"
+    ];
+    for ( item in expected ) {
+        if ( !fileExists( path & item ) ) { throw( message="Falta " & item ); }
+    }
+    if ( !find( 'subAgents: [ "revision-especialista" ]', fileRead( path & "/Agent.bx", "UTF-8" ) ) ) {
+        throw( message="El agente raiz no declara el subagente en configure()." );
+    }
+    println( "[OK] Archivos reales de tools, skills, subagents y enlace configure()." );
+
+    build = new lib.Validator().validate( path );
+    if ( !build.success ) {
+        println( "[ERROR] Diagnostico de build: " & build.output );
+        throw( message="BX Agents no pudo compilar la prueba de capacidades." );
+    }
+    println( "[OK] bxAgents build completado (exitCode=" & build.exitCode & ")." );
+    println( "=== CAPACIDADES v1.6: PRUEBA SUPERADA ===" );
+    println( "RUTA: " & path );
+} catch ( any err ) {
+    println( "[ERROR] " & err.message );
+    throw( message="Test capabilities fallido: " & err.message );
+}

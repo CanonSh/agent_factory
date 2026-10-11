@@ -1,5 +1,5 @@
 /**
- * AgentSpec v1.0 — contrato de datos de Agent Factory.
+ * AgentSpec v1.6 — contrato de datos de Agent Factory.
  *
  * Recibe un struct con exactamente ocho campos, lo valida y devuelve
  * un struct normalizado. No invoca IA, no lee ni escribe archivos.
@@ -56,38 +56,114 @@ class {
             throw( message="AgentSpec: 'name' debe comenzar con una letra, contener solo letras ASCII, numeros, _ o -, y tener maximo 50 caracteres." );
         }
 
-        // 5. Para v1.0 usamos unicamente la conexion ya probada.
+        // 5. Para v1.6 mantenemos unicamente la conexion ya probada.
         var providerName = trim( arguments.spec.provider );
         var modelName = trim( arguments.spec.model );
 
         if ( compare( providerName, "openai-compatible" ) != 0 ) {
-            throw( message="AgentSpec: 'provider' debe ser exactamente 'openai-compatible' en v1.0." );
+            throw( message="AgentSpec: 'provider' debe ser exactamente 'openai-compatible' en v1.6." );
         }
         if ( compare( modelName, "gemini-3.5-flash-lite" ) != 0 ) {
-            throw( message="AgentSpec: 'model' debe ser exactamente 'gemini-3.5-flash-lite' en v1.0." );
+            throw( message="AgentSpec: 'model' debe ser exactamente 'gemini-3.5-flash-lite' en v1.6." );
         }
 
-        // 6. Estas capacidades todavia no estan implementadas en Generator.
+        // 6. Capacidades BX Agents v1.6: listas declarativas y limitadas.
         for ( var field in [ "tools", "skills", "subagents" ] ) {
             if ( !isArray( arguments.spec[ field ] ) ) {
                 throw( message="AgentSpec: '" & field & "' debe ser un array []." );
             }
-            if ( arrayLen( arguments.spec[ field ] ) != 0 ) {
-                throw( message="AgentSpec: '" & field & "' debe estar vacio [] en v1.0." );
+            if ( arrayLen( arguments.spec[ field ] ) > 3 ) {
+                throw( message="AgentSpec: se permiten maximo 3 elementos en '" & field & "'." );
             }
         }
 
-        // 7. Devolver una copia limpia. La entrada original no se modifica.
-        // El texto de instructions se conserva para respetar los saltos de linea.
+        var selectedTools = [];
+        for ( var selectedTool in arguments.spec.tools ) {
+            if ( !isInstanceOf( selectedTool, "java.lang.String" ) ) {
+                throw( message="AgentSpec: tools solo admite nombres de tipos de herramienta." );
+            }
+            if ( selectedTool != "text_metrics" && selectedTool != "arithmetic" ) {
+                throw( message="AgentSpec: herramienta no soportada: " & selectedTool & ". Use text_metrics o arithmetic." );
+            }
+            if ( arrayFind( selectedTools, selectedTool ) > 0 ) {
+                throw( message="AgentSpec: tool duplicada: " & selectedTool );
+            }
+            arrayAppend( selectedTools, selectedTool );
+        }
+
+        var selectedSkills = [];
+        var skillNames = [];
+        for ( var skill in arguments.spec.skills ) {
+            validateCapability( skill, "skills" );
+            var skillSlug = trim( skill.name );
+            if ( arrayFind( skillNames, lCase( skillSlug ) ) > 0 ) {
+                throw( message="AgentSpec: skill duplicada: " & skillSlug );
+            }
+            arrayAppend( skillNames, lCase( skillSlug ) );
+            arrayAppend( selectedSkills, {
+                name: skillSlug,
+                description: trim( skill.description ),
+                instructions: skill.instructions
+            } );
+        }
+
+        var selectedSubagents = [];
+        var subagentNames = [];
+        for ( var subagent in arguments.spec.subagents ) {
+            validateCapability( subagent, "subagents" );
+            var subagentSlug = trim( subagent.name );
+            if ( compareNoCase( subagentSlug, agentName ) == 0 ) {
+                throw( message="AgentSpec: subagente no puede tener el mismo nombre que el agente raiz." );
+            }
+            if ( arrayFind( subagentNames, lCase( subagentSlug ) ) > 0 ) {
+                throw( message="AgentSpec: subagente duplicado: " & subagentSlug );
+            }
+            arrayAppend( subagentNames, lCase( subagentSlug ) );
+            arrayAppend( selectedSubagents, {
+                name: subagentSlug,
+                description: trim( subagent.description ),
+                instructions: subagent.instructions
+            } );
+        }
+
+        // Compatibilidad: se mantienen exactamente ocho campos de nivel raiz.
         return {
             name: agentName,
             description: trim( arguments.spec.description ),
             instructions: arguments.spec.instructions,
             provider: providerName,
             model: modelName,
-            tools: [],
-            skills: [],
-            subagents: []
+            tools: selectedTools,
+            skills: selectedSkills,
+            subagents: selectedSubagents
         };
+    }
+
+    private void function validateCapability( required any item, required string kind ) {
+        if ( !isStruct( arguments.item ) ) {
+            throw( message="AgentSpec: cada elemento de " & arguments.kind & " debe ser un struct." );
+        }
+        for ( var keyName in [ "name", "description", "instructions" ] ) {
+            if ( !structKeyExists( arguments.item, keyName )
+                || !isInstanceOf( arguments.item[ keyName ], "java.lang.String" )
+                || !len( trim( arguments.item[ keyName ] ) ) ) {
+                throw( message="AgentSpec: falta o es invalido '" & keyName & "' en " & arguments.kind );
+            }
+        }
+        for ( var extraKey in structKeyArray( arguments.item ) ) {
+            var extraAllowed = false;
+            for ( var allowedNested in [ "name", "description", "instructions" ] ) {
+                if ( compareNoCase( allowedNested, extraKey ) == 0 ) { extraAllowed = true; break; }
+            }
+            if ( !extraAllowed ) {
+                throw( message="AgentSpec: campo no permitido en " & arguments.kind & ": " & extraKey );
+            }
+        }
+        if ( !reFind( "^[a-z][a-z0-9-]{0,49}$", trim( arguments.item.name ) ) ) {
+            throw( message="AgentSpec: nombre de " & arguments.kind & " debe ser un slug en minusculas (a-z, 0-9, -), maximo 50." );
+        }
+        if ( len( arguments.item.description ) > 250 || len( arguments.item.instructions ) > 4000 ) {
+            throw( message="AgentSpec: descripcion (250) o instrucciones (4000) demasiado extensas en " & arguments.kind );
+        }
     }
 }
