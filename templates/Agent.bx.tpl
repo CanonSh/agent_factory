@@ -6,7 +6,7 @@ class extends="bxModules.bxai.models.runnables.AiAgent" {
             description: {{DESCRIPTION_LITERAL}},
             model: aiModel(
                 provider: {{PROVIDER_LITERAL}},
-                apiKey: server.system.environment.keyExists( "GEMINI_API_KEY" ) ? server.system.environment.GEMINI_API_KEY : "",
+                apiKey: getSystemSetting( "GEMINI_API_KEY", "" ),
                 params: {
                     model: {{MODEL_LITERAL}}
                 },

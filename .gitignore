@@ -16,3 +16,6 @@ boxlang_modules/
 # Archivos temporales
 *.backup
 *.log
+
+# Configuracion local del editor
+.vscode/
