@@ -1,0 +1,116 @@
+/**
+ * Generator MVP: AgentSpec (struct) -> proyecto BX Agents.
+ * NO ejecuta Gemini ni modifica componentes de otros desarrolladores.
+ */
+class {
+
+    function init( required string rootPath ) {
+        variables.rootPath = reReplace(
+            replace( arguments.rootPath, char(92), "/", "all" ),
+            "/+$", ""
+        );
+
+        if ( !directoryExists( variables.rootPath & "/templates" ) ) {
+            throw( message="No existe la carpeta templates en: " & variables.rootPath );
+        }
+        return this;
+    }
+
+    function generate( required struct spec ) {
+        validateSpec( arguments.spec );
+
+        var agentName = trim( arguments.spec.name );
+        var destination = variables.rootPath & "/output/" & agentName;
+
+        // No sobrescribir proyectos ya generados.
+        if ( directoryExists( destination ) ) {
+            throw( message="El proyecto ya existe: " & destination );
+        }
+
+        // Conservamos la estructura habitual de un proyecto BX Agents.
+        directoryCreate( destination, true );
+        for ( var folder in [
+            "gateways", "interceptors", "mcp", "models", "modules",
+            "schedules", "skills", "subagents", "tests", "tools"
+        ] ) {
+            directoryCreate( destination & "/" & folder, true );
+        }
+
+        var agentFile = renderTemplate( "Agent.bx.tpl", {
+            NAME_LITERAL: bxStringLiteral( agentName ),
+            DESCRIPTION_LITERAL: bxStringLiteral( arguments.spec.description ),
+            PROVIDER_LITERAL: bxStringLiteral( arguments.spec.provider ),
+            MODEL_LITERAL: bxStringLiteral( arguments.spec.model )
+        } );
+
+        var instructionsFile = renderTemplate( "instructions.md.tpl", {
+            NAME: agentName,
+            DESCRIPTION: arguments.spec.description,
+            INSTRUCTIONS: arguments.spec.instructions
+        } );
+
+        var readmeFile = renderTemplate( "README.generated.tpl", {
+            NAME: agentName,
+            DESCRIPTION: arguments.spec.description,
+            MODEL: arguments.spec.model
+        } );
+
+        fileWrite( destination & "/Agent.bx", agentFile, "UTF-8" );
+        fileWrite( destination & "/instructions.md", instructionsFile, "UTF-8" );
+        fileWrite( destination & "/README.md", readmeFile, "UTF-8" );
+        fileWrite( destination & "/agent-spec.json", jsonSerialize( data: arguments.spec, pretty: true ), "UTF-8" );
+        fileWrite( destination & "/.env.example", "GEMINI_API_KEY=" & char(10), "UTF-8" );
+        fileWrite( destination & "/.gitignore", ".env" & char(10) & ".build/" & char(10) & "logs/" & char(10), "UTF-8" );
+
+        return destination;
+    }
+
+    private function validateSpec( required struct spec ) {
+        for ( var field in [ "name", "description", "instructions", "provider", "model" ] ) {
+            if ( !arguments.spec.keyExists( field ) || !isSimpleValue( arguments.spec[ field ] ) || !len( trim( arguments.spec[ field ] ) ) ) {
+                throw( message="Campo requerido o invalido: " & field );
+            }
+        }
+
+        // Bloquea rutas arbitrarias y nombres incompatibles con carpetas.
+        if ( !reFind( "^[A-Za-z][A-Za-z0-9_-]{0,49}$", trim( arguments.spec.name ) ) ) {
+            throw( message="name debe comenzar con una letra y usar solo letras, numeros, - o _ (max. 50)." );
+        }
+
+        // Este MVP solo implementa el proveedor probado manualmente.
+        if ( lCase( trim( arguments.spec.provider ) ) != "openai-compatible" ) {
+            throw( message="MVP: provider debe ser openai-compatible." );
+        }
+
+        for ( var field in [ "tools", "skills", "subagents" ] ) {
+            if ( !arguments.spec.keyExists( field ) || !isArray( arguments.spec[ field ] ) ) {
+                throw( message="El campo " & field & " debe ser un arreglo." );
+            }
+            if ( arrayLen( arguments.spec[ field ] ) > 0 ) {
+                throw( message="MVP: todavia no se generan " & field & ". Debe estar vacio." );
+            }
+        }
+    }
+
+    private function renderTemplate( required string templateName, required struct values ) {
+        var path = variables.rootPath & "/templates/" & arguments.templateName;
+        if ( !fileExists( path ) ) {
+            throw( message="Falta la plantilla: " & path );
+        }
+
+        var result = fileRead( path, "UTF-8" );
+        for ( var token in arguments.values ) {
+            result = replace( result, "{{" & token & "}}", arguments.values[ token ], "all" );
+        }
+        return result;
+    }
+
+    /** Convierte una cadena a literal doble-comillado valido de BoxLang. */
+    private function bxStringLiteral( required string value ) {
+        var clean = replace( arguments.value, char(13), " ", "all" );
+        clean = replace( clean, char(10), " ", "all" );
+        clean = replace( clean, char(34), char(34) & char(34), "all" );
+        clean = replace( clean, char(35), char(35) & char(35), "all" );
+        return char(34) & clean & char(34);
+    }
+}
