@@ -2,7 +2,7 @@
 
 > **Versión de referencia del equipo:** 11 de octubre de 2026  
 > **Objetivo:** que los tres desarrolladores ejecuten Agent Factory con un entorno reproducible, sin subir credenciales ni modificar accidentalmente el trabajo de otros.  
-> **Alcance:** PowerShell en Windows 10/11, BoxLang CLI y el MVP de `Generator.bx`.
+> **Alcance:** PowerShell en Windows 10/11, BoxLang CLI y la creacion de agentes desde instrucciones en lenguaje natural.
 
 ## 1. Antes de comenzar
 
@@ -193,7 +193,27 @@ La URL termina en `/openai` **sin barra final**. No sustituir por `provider: "ge
 
 > El hecho de que un agente responda no confirma que haya ejecutado herramientas personalizadas. `tools`, `skills` y `subagents` aún no están implementados por el Generator MVP.
 
-## 6. Prueba de humo obligatoria — Generator MVP
+## 6. Crear y probar agentes
+
+Para crear un agente desde la consola, configura `GEMINI_API_KEY` y ejecuta `factory.bxs` desde la raíz del repositorio. El programa preguntará el nombre y la instrucción en lenguaje natural:
+
+```powershell
+$env:GEMINI_API_KEY = "tu_clave"
+boxlang factory.bxs
+```
+
+El nombre debe comenzar con una letra y contener solo letras, números, guion o guion bajo (máximo 50 caracteres). El proyecto se crea en `output/<Nombre>/` y no se sobrescribe si ya existe. Para validar y ejecutar el agente:
+
+```powershell
+cd output\MeetingNotes
+boxlang module:bxagents doctor
+boxlang module:bxagents build
+boxlang module:bxagents invoke --message="Resume estas notas: ..." --json
+```
+
+El generador personaliza nombre, descripcion e instrucciones, pero aun no implementa herramientas, skills ni subagentes.
+
+### Prueba fija de LogGuardian
 
 Desde la **raíz de `agent_factory`**, en una terminal donde `GEMINI_API_KEY` esté configurada:
 
@@ -203,7 +223,7 @@ boxlang test-generator.bxs
 
 Resultado esperado: un mensaje que comienza por `AGENTE GENERADO:` y señala `output/LogGuardian`.
 
-**Atención:** el MVP **no sobrescribe un proyecto existente**. Si ya existe `output/LogGuardian/`, la ejecución puede fallar para evitar destruir archivos. No borres carpetas indiscriminadamente: confirma que ese directorio contiene únicamente una salida de prueba que no necesitas, o usa una especificación con otro nombre.
+**Atención:** el generador **no sobrescribe un proyecto existente**. Si ya existe `output/LogGuardian/`, la ejecución puede fallar para evitar destruir archivos. No borres carpetas indiscriminadamente: confirma que ese directorio contiene únicamente una salida de prueba que no necesitas, o usa una especificación con otro nombre.
 
 Después entra en el proyecto generado:
 
@@ -246,7 +266,7 @@ cd ..\..
 | `Shell.bx` | Comando CLI → salida/estado | Dev 3 |
 | `Validator.bx` | Proyecto → resultado del build | Dev 3 |
 | `Evaluator.bx` | Proyecto validado → evaluación | Dev 3 |
-| `factory.bxs` | Orquesta el flujo completo | Integración entre los tres |
+| `factory.bxs` | Orquesta análisis de instrucción, generación, validación y evaluación | Integración entre los tres |
 
 Las **responsabilidades de los archivos** provienen del documento de arquitectura del proyecto. La **asignación entre desarrolladores es una propuesta**, no un requisito del framework.
 
@@ -265,7 +285,7 @@ Contrato JSON de referencia actual:
 }
 ```
 
-Antes de integrar `Analyst` con `Generator`, los tres deben confirmar que `AgentSpec.bx` use esos mismos campos y tipos. El Generator MVP **solo admite** `provider: "openai-compatible"` y listas vacías para `tools`, `skills` y `subagents`.
+El flujo actual conecta `Analyst` con `Generator` mediante `AgentSpec.bx`: Gemini convierte la solicitud en `name`, `description` e `instructions`, y el generador crea el proyecto. Por ahora solo se admite `provider: "openai-compatible"` y los campos `tools`, `skills` y `subagents` deben estar vacíos.
 
 ## 8. Problemas conocidos y soluciones
 
@@ -348,4 +368,4 @@ boxlang_modules/
 
 ---
 
-**Última prueba de referencia del equipo:** Generator MVP creó `LogGuardian`; en Windows, `boxlang module:bxagents doctor` devolvió `Everything checks out`, `build` devolvió `Build succeeded` e `invoke --json` respondió con Gemini usando `OpenAICompatible/gemini-3.5-flash-lite`. Estas comprobaciones fueron manuales; la orquestación completa de `factory.bxs` y la generación de herramientas/skills/subagentes siguen pendientes.
+**Última prueba de referencia del equipo:** Generator creó `LogGuardian`; en Windows, `boxlang module:bxagents doctor` devolvió `Everything checks out`, `build` devolvió `Build succeeded` e `invoke --json` respondió con Gemini usando `OpenAICompatible/gemini-3.5-flash-lite`. Estas comprobaciones fueron manuales. La generación de agentes desde solicitudes en lenguaje natural ya está conectada; la generación automática de herramientas, skills y subagentes sigue pendiente.

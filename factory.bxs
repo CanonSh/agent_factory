@@ -1,18 +1,25 @@
 // Flujo local: especificacion -> generacion -> validacion -> evaluacion.
 try {
     root = getDirectoryFromPath( getCurrentTemplatePath() );
-    specPath = root & "examples/logguardian.json";
-    spec = jsonDeserialize( fileRead( specPath, "UTF-8" ) );
-
-    normalizedSpec = new lib.AgentSpec( spec ).toStruct();
     generator = new lib.Generator( root );
-    existingPath = root & "output/" & normalizedSpec.name;
-    if ( directoryExists( existingPath ) ) {
-        generatedPath = existingPath;
-        println( "SALIDA EXISTENTE: se validara sin sobrescribirla." );
-    } else {
-        generatedPath = generator.generate( normalizedSpec );
+
+    console = createObject( "java", "ortus.boxlang.runtime.cli.MiniConsole" ).init( "" );
+    println( "Nombre del agente (letras, numeros, - o _; debe iniciar con letra):" );
+    requestedName = trim( console.readLine() ?: "" );
+    if ( !reFind( "^[A-Za-z][A-Za-z0-9_-]{0,49}$", requestedName ) ) {
+        throw( type: "InvalidAgentName", message: "El nombre debe iniciar con una letra y contener solo letras, numeros, guion o guion bajo (maximo 50 caracteres)." );
     }
+
+    println( "Describe en lenguaje natural que debe hacer el agente:" );
+    instruction = trim( console.readLine() ?: "" );
+    if ( !len( instruction ) ) {
+        throw( type: "MissingAgentInstruction", message: "La instruccion del agente no puede estar vacia." );
+    }
+
+    analyst = new lib.Analyst();
+    spec = analyst.analyze( instruction, requestedName );
+    generatedPath = generator.generate( spec );
+    println( "AGENTE CREADO DESDE LA INSTRUCCION: " & generatedPath );
 
     validation = new lib.Validator().validate( generatedPath );
     evaluation = new lib.Evaluator().evaluate( validation );
